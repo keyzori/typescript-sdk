@@ -1,0 +1,15 @@
+{
+	"extends": "../tsconfig.json",
+	"compilerOptions": {
+		"noEmit": true,
+		"rootDir": "../..",
+		"allowImportingTsExtensions": true,
+		"skipLibCheck": true,
+		"types": ["bun"],
+		"paths": {
+			"@keyzori/types": ["../../types/src/index.ts"],
+			"@keyzori/server/*": ["../../server/*"]
+		}
+	},
+	"include": ["../../types/tests/server-contract.ts"]
+}

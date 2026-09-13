@@ -1,0 +1,78 @@
+{
+	"name": "@keyzori/sdk",
+	"version": "0.5.0",
+	"license": "Apache-2.0",
+	"description": "Typed SDK for integrating applications with a Keyzori License Server.",
+	"author": "Keyzori contributors",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/keyzori/typescript-sdk.git"
+	},
+	"homepage": "https://github.com/keyzori/Keyzori/wiki/SDK-Reference",
+	"bugs": "https://github.com/keyzori/Keyzori/issues",
+	"keywords": [
+		"keyzori",
+		"licensing",
+		"sdk",
+		"device-id"
+	],
+	"main": "./dist/cjs/index.js",
+	"types": "./dist/esm/index.d.ts",
+	"exports": {
+		".": {
+			"import": {
+				"types": "./dist/esm/index.d.ts",
+				"default": "./dist/esm/index.js"
+			},
+			"require": {
+				"types": "./dist/cjs/index.d.ts",
+				"default": "./dist/cjs/index.js"
+			}
+		}
+	},
+	"type": "module",
+	"engines": {
+		"node": ">=18.18.0"
+	},
+	"publishConfig": {
+		"access": "public",
+		"registry": "https://registry.npmjs.org/"
+	},
+	"files": [
+		"dist",
+		"README.md",
+		"LICENSE"
+	],
+	"scripts": {
+		"build": "node scripts/build.mjs",
+		"test": "node scripts/test.mjs",
+		"test:coverage": "node scripts/test.mjs --coverage",
+		"test:contract": "bunx --bun tsc -p tests/tsconfig.contract.json && bun test tests/productFlow.test.ts",
+		"test:live": "bun run tests/liveFlow.ts",
+		"test:package": "node --test tests/package.test.mjs",
+		"typecheck": "tsc --noEmit",
+		"lint": "biome check .",
+		"audit": "bun audit --audit-level=high",
+		"release:verify": "node scripts/verifyRelease.mjs",
+		"check": "bun run build && bun run test && bun run test:package && bun run test:workflows && bun run release:verify && bun run lint",
+		"pack": "node scripts/pack.mjs",
+		"prepack": "node scripts/packGuard.mjs",
+		"test:docker": "node --test tests/dockerIdentity.test.mjs",
+		"test:workflows": "bun test tests/workflows.test.ts"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.5.12",
+		"@types/bun": "1.4.2",
+		"@types/node": "18.19.130",
+		"elysia": "1.4.30",
+		"typescript": "7.0.2",
+		"typescript-compat": "npm:typescript@5.0.4"
+	},
+	"module": "./dist/esm/index.js",
+	"dependencies": {
+		"@keyzori/types": "0.1.0"
+	},
+	"overrides": {
+		"@keyzori/types": "link:@keyzori/types"
+	}
+}

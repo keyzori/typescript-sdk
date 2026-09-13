@@ -1,0 +1,19 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"lib": ["ES2022", "DOM", "DOM.Iterable"],
+		"module": "NodeNext",
+		"moduleResolution": "NodeNext",
+		"strict": true,
+		"skipLibCheck": false,
+		"declaration": true,
+		"rootDir": "src",
+		"outDir": "dist/esm",
+		"types": ["node"],
+		"noUncheckedIndexedAccess": true,
+		"noImplicitOverride": true,
+		"newLine": "lf"
+	},
+	"include": ["src/**/*.ts"],
+	"exclude": ["src/test"]
+}

@@ -1,0 +1,147 @@
+name: Release Please
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: release-please-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    name: Version, tag, and release
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      sha: ${{ steps.release.outputs.sha }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    env:
+      RELEASE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - id: gate
+        name: Require successful CI and CodeQL runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..60}; do
+            main_sha="$(gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+            if [[ "${RELEASE_SHA}" != "${main_sha}" ]]; then
+              echo "Skipping superseded main commit ${RELEASE_SHA}; current main is ${main_sha}."
+              echo "eligible=false" >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
+
+            runs="$(gh api \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${RELEASE_SHA}&event=push&per_page=100")"
+
+            waiting=false
+            for workflow in CI CodeQL; do
+              status="$(jq -r --arg workflow "${workflow}" '
+                [.workflow_runs[] | select(.name == $workflow)]
+                | sort_by(.created_at)
+                | last
+                | if . == null then "missing" else "\(.status):\(.conclusion // "")" end
+              ' <<<"${runs}")"
+
+              case "${status}" in
+                completed:success) ;;
+                missing|queued:*|in_progress:*|requested:*|waiting:*|pending:*) waiting=true ;;
+                *) echo "${workflow} is not green for ${RELEASE_SHA}: ${status}" >&2; exit 1 ;;
+              esac
+            done
+
+            if [[ "${waiting}" == false ]]; then
+              echo "CI and CodeQL are green for ${RELEASE_SHA}."
+              echo "eligible=true" >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
+
+            if [[ "${attempt}" == 60 ]]; then
+              echo "Timed out waiting for CI and CodeQL for ${RELEASE_SHA}." >&2
+              exit 1
+            fi
+            sleep 15
+          done
+
+      - name: Require release token
+        if: steps.gate.outputs.eligible == 'true'
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: test -n "${RELEASE_TOKEN}" || { echo "RELEASE_TOKEN is not configured." >&2; exit 1; }
+
+      - name: Run Release Please
+        id: release
+        if: steps.gate.outputs.eligible == 'true'
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          target-branch: main
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+  publish:
+    name: Publish npm package
+    needs: release
+    if: needs.release.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.release.outputs.sha }}
+          path: ts-sdk
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: keyzori/types
+          ref: ee05fe6d13255e5b8765fe01bcdaeb54b33b462b # @keyzori/types 0.1.0
+          path: types
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+        working-directory: types
+      - run: bun pm pack --destination .artifacts && bun link
+        working-directory: types
+      - run: bun install --frozen-lockfile
+        working-directory: ts-sdk
+      - name: Verify released version
+        working-directory: ts-sdk
+        env:
+          RELEASE_TAG: ${{ needs.release.outputs.tag_name }}
+        run: bun run release:verify "$RELEASE_TAG"
+      - name: Check and pack release
+        working-directory: ts-sdk
+        run: |
+          bun run check
+          bun run audit
+          bun run pack
+      - name: Publish verified archive
+        working-directory: ts-sdk
+        run: node scripts/publish.mjs
+        env:
+          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+      - name: Verify npm contains the tested archive
+        working-directory: ts-sdk
+        run: node scripts/verifyPublished.mjs
